@@ -1,0 +1,90 @@
+# Authored for the sealed build: the webjars/swagger-ui wrapper repo ships no CI.
+# Builds the WebJar with Maven (the pom downloads the upstream swagger-ui release
+# archive and packages its dist/), then runs upstream swagger-ui's own unit test
+# suites (mocha "just-test-in-node" + jest unit config) from that same archive.
+name: seal-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: "Jest test path pattern; empty runs the full suite"
+        required: false
+        default: ""
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CYPRESS_INSTALL_BINARY: "0"
+      CHROMEDRIVER_SKIP_DOWNLOAD: "true"
+      HUSKY: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+
+      - name: Install Maven 3.9.5
+        run: |
+          curl -fsSL https://archive.apache.org/dist/maven/maven-3/3.9.5/binaries/apache-maven-3.9.5-bin.tar.gz -o /tmp/maven.tgz
+          tar -xzf /tmp/maven.tgz -C /tmp
+          echo "/tmp/apache-maven-3.9.5/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "14"
+
+      - name: Build WebJar (mvn package)
+        run: |
+          mvn -v
+          mvn -B clean package
+
+      - name: Upload jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: swagger-ui-jar
+          path: target/swagger-ui-*.jar
+          if-no-files-found: error
+
+      - name: Install upstream swagger-ui test dependencies
+        working-directory: target/swagger-ui-3.49.0
+        run: |
+          node -v
+          npm -v
+          npm ci
+
+      - name: Upstream mocha tests (just-test-in-node)
+        if: ${{ inputs.test-filter == '' }}
+        working-directory: target/swagger-ui-3.49.0
+        run: npm run just-test-in-node
+
+      - name: Upstream jest unit tests
+        working-directory: target/swagger-ui-3.49.0
+        run: |
+          npx cross-env BABEL_ENV=test npx jest --config ./config/jest/jest.unit.config.js --ci --verbose --json --outputFile=/tmp/jest-results.json ${{ inputs.test-filter }}
+
+      - name: Report jest summary and every skipped test with its reason
+        if: always()
+        working-directory: target/swagger-ui-3.49.0
+        run: |
+          cat > /tmp/skip-report.js <<'EOF'
+          const fs = require('fs');
+          const r = JSON.parse(fs.readFileSync('/tmp/jest-results.json', 'utf8'));
+          console.log(`Jest summary: suites ${r.numPassedTestSuites} passed / ${r.numFailedTestSuites} failed / ${r.numPendingTestSuites} skipped (of ${r.numTotalTestSuites}); tests ${r.numPassedTests} passed / ${r.numFailedTests} failed / ${r.numPendingTests} skipped / ${r.numTodoTests} todo (of ${r.numTotalTests})`);
+          const marker = /\b(xit|xdescribe|xtest|it\.skip|describe\.skip|test\.skip|it\.todo|test\.todo)\b/;
+          for (const s of r.testResults) {
+            const skipped = s.assertionResults.filter(a => a.status !== 'passed' && a.status !== 'failed');
+            if (!skipped.length) continue;
+            const lines = fs.readFileSync(s.name, 'utf8').split('\n');
+            const markers = lines.map((l, i) => [i + 1, l.trim()]).filter(([, l]) => marker.test(l));
+            const file = s.name.replace(process.cwd() + '/', '');
+            console.log(`\nSKIPPED in ${file} (reason: upstream-committed skip markers below):`);
+            for (const [n, l] of markers) console.log(`  marker ${file}:${n}: ${l}`);
+            for (const a of skipped) console.log(`  [${a.status}] ${a.fullName}`);
+          }
+          EOF
+          node /tmp/skip-report.js
