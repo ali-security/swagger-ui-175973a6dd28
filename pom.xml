@@ -105,10 +105,76 @@
                                 <get src="${upstream.url}" dest="${project.build.directory}/${project.artifactId}.zip" />
                                 <echo message="unzip archive" />
                                 <unzip src="${project.build.directory}/${project.artifactId}.zip" dest="${project.build.directory}" />
+                                <!-- CVE-2018-25031: only read configuration from the query string when the new
+                                     queryConfigEnabled option (default false) is set (swagger-ui commit 01a3e55).
+                                     Applied to the upstream source and to the prebuilt bundles that are packaged;
+                                     in the minified bundles e = opts and H.C / $.C = parseSearch.
+                                     ISO-8859-1 keeps the read/write byte-transparent; all tokens are ASCII. -->
+                                <echo message="applying CVE-2018-25031 fix (queryConfigEnabled)" />
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/src/core/index.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA["trace"
+    ],]]></replacetoken>
+                                    <replacevalue><![CDATA["trace"
+    ],
+    queryConfigEnabled: false,]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/src/core/index.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[let queryConfig = parseSearch()]]></replacetoken>
+                                    <replacevalue><![CDATA[let queryConfig = opts.queryConfigEnabled ? parseSearch() : {}]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/dist/swagger-ui.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[supportedSubmitMethods:["get","put","post","delete","options","head","patch","trace"],]]></replacetoken>
+                                    <replacevalue><![CDATA[supportedSubmitMethods:["get","put","post","delete","options","head","patch","trace"],queryConfigEnabled:!1,]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/dist/swagger-ui.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[r=Object(H.C)(),a=e.domNode;]]></replacetoken>
+                                    <replacevalue><![CDATA[r=e.queryConfigEnabled?Object(H.C)():{},a=e.domNode;]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/dist/swagger-ui-es-bundle-core.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[supportedSubmitMethods:["get","put","post","delete","options","head","patch","trace"],]]></replacetoken>
+                                    <replacevalue><![CDATA[supportedSubmitMethods:["get","put","post","delete","options","head","patch","trace"],queryConfigEnabled:!1,]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/dist/swagger-ui-es-bundle-core.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[r=Object(H.C)(),a=e.domNode;]]></replacetoken>
+                                    <replacevalue><![CDATA[r=e.queryConfigEnabled?Object(H.C)():{},a=e.domNode;]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/dist/swagger-ui-bundle.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[supportedSubmitMethods:["get","put","post","delete","options","head","patch","trace"],]]></replacetoken>
+                                    <replacevalue><![CDATA[supportedSubmitMethods:["get","put","post","delete","options","head","patch","trace"],queryConfigEnabled:!1,]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/dist/swagger-ui-bundle.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[r=Object($.C)(),o=e.domNode;]]></replacetoken>
+                                    <replacevalue><![CDATA[r=e.queryConfigEnabled?Object($.C)():{},o=e.domNode;]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/dist/swagger-ui-es-bundle.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[supportedSubmitMethods:["get","put","post","delete","options","head","patch","trace"],]]></replacetoken>
+                                    <replacevalue><![CDATA[supportedSubmitMethods:["get","put","post","delete","options","head","patch","trace"],queryConfigEnabled:!1,]]></replacevalue>
+                                </replace>
+                                <replace file="${project.build.directory}/swagger-ui-${version.unrevise}/dist/swagger-ui-es-bundle.js" encoding="ISO-8859-1" failOnNoReplacements="true" summary="true">
+                                    <replacetoken><![CDATA[r=Object($.C)(),o=e.domNode;]]></replacetoken>
+                                    <replacevalue><![CDATA[r=e.queryConfigEnabled?Object($.C)():{},o=e.domNode;]]></replacevalue>
+                                </replace>
                                 <echo message="moving resources" />
                                 <move todir="${destDir}">
                                     <fileset dir="${project.build.directory}/swagger-ui-${version.unrevise}/dist" />
                                 </move>
+                            </target>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <!-- Stage the WebJar's own tests (src/test/js) into the upstream source tree so they
+                             run with upstream's jest unit configuration against the packaged bundles. -->
+                        <id>stage-webjar-tests</id>
+                        <phase>process-test-resources</phase>
+                        <goals><goal>run</goal></goals>
+                        <configuration>
+                            <target>
+                                <copy todir="${project.build.directory}/swagger-ui-${version.unrevise}/test/unit/webjar">
+                                    <fileset dir="${basedir}/src/test/js" />
+                                    <filterset>
+                                        <filter token="WEBJAR_DIR" value="${destDir}" />
+                                    </filterset>
+                                </copy>
                             </target>
                         </configuration>
                     </execution>
